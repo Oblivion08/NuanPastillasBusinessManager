@@ -3,7 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { signInWithEmailAndPassword, signOut, type User } from "firebase/auth";
 import { collection, doc, getDoc, getDocs, runTransaction, setDoc } from "firebase/firestore";
-import { auth, db } from "@/lib/firebase";
+import { auth, db, firebaseConfigured } from "@/lib/firebase";
 
 type Product = { id: number; name: string; flavor: string; cost: number; price: number; stock: number; lowStock: number; active: number };
 type Sale = { id: number; saleDate: string; productId: number; productName: string; quantity: number; unitPrice: number; unitCost: number; discount: number; total: number; profit: number; payment: string; channel: string };
@@ -83,6 +83,7 @@ export default function Home() {
 
   async function login(e:FormEvent<HTMLFormElement>){e.preventDefault();const f=new FormData(e.currentTarget);try{setLoading(true);await signInWithEmailAndPassword(auth,String(f.get("email")),String(f.get("password")));}catch{setLoading(false);setToast("Mali ang email o password.");}}
 
+  if (!firebaseConfigured) return <div className="login-screen"><div className="login-card"><h1>NUAN Business Manager</h1><p>Firebase setup is required before you can sign in and save business data.</p><p>Add the six <code>NEXT_PUBLIC_FIREBASE_*</code> values in Vercel, then redeploy.</p></div></div>;
   if (!authReady) return <div className="login-screen"><div className="loading">Preparing NUAN Business Manager…</div></div>;
   if (!user) return <div className="login-screen"><form className="login-card" onSubmit={login}><div className="brand-mark">N</div><p className="eyebrow">NUAN PASTILLAS</p><h1>Business Manager</h1><p>Sign in to view your private sales, inventory, expenses, and profit records.</p><label>Email<input type="email" name="email" required autoComplete="email"/></label><label>Password<input type="password" name="password" required autoComplete="current-password"/></label><button className="primary" disabled={loading}>{loading?"Signing in…":"Sign In"}</button></form>{toast&&<div className="toast">{toast}</div>}</div>;
 
