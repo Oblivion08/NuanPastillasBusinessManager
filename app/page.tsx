@@ -8,14 +8,14 @@ import { auth, db, firebaseConfigured } from "@/lib/firebase";
 type Product = { id: number; name: string; flavor: string; cost: number; price: number; stock: number; lowStock: number; active: number };
 type Sale = { id: number; saleDate: string; productId: number; productName: string; quantity: number; unitPrice: number; unitCost: number; discount: number; total: number; profit: number; payment: string; channel: string };
 type Expense = { id: number; expenseDate: string; category: string; description: string; amount: number; payment: string };
-type Settings = { businessName: string; ownerName: string; contactNumber: string; defaultLowStock: number; currency: string };
+type Settings = { businessName: string; ownerName: string; contactNumber: string; defaultLowStock: number; monthlyPackGoal: number; currency: string };
 type Data = { products: Product[]; sales: Sale[]; expenses: Expense[]; settings: Settings };
 type Tab = "Dashboard" | "Sales" | "Expenses" | "Products" | "Inventory" | "Reports" | "Settings";
 type Stats = { sales: number; cost: number; gross: number; expenses: number; net: number; packs: number; stock: number; low: number };
 
 const money = new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 });
 const today = () => new Date().toISOString().slice(0, 10);
-const DEFAULT_SETTINGS: Settings = { businessName: "NUAN Pastillas", ownerName: "Jenny Lou", contactNumber: "", defaultLowStock: 10, currency: "PHP" };
+const DEFAULT_SETTINGS: Settings = { businessName: "NUAN Pastillas", ownerName: "Jenny Lou", contactNumber: "", defaultLowStock: 10, monthlyPackGoal: 200, currency: "PHP" };
 
 const nav: { label: Tab; icon: string }[] = [
   { label: "Dashboard", icon: "⌂" }, { label: "Sales", icon: "₱" }, { label: "Expenses", icon: "↗" },
@@ -47,7 +47,7 @@ export default function Home() {
         await Promise.all(seed.map(p => setDoc(doc(db,"products",String(p.id)),p)));
       }
       const [products,sales,expenses,settingsDoc] = await Promise.all([getDocs(collection(db,"products")),getDocs(collection(db,"sales")),getDocs(collection(db,"expenses")),getDoc(doc(db,"settings","main"))]);
-      const settings = settingsDoc.exists() ? settingsDoc.data() as Settings : DEFAULT_SETTINGS;
+      const settings = settingsDoc.exists() ? { ...DEFAULT_SETTINGS, ...settingsDoc.data() } as Settings : DEFAULT_SETTINGS;
       if (!settingsDoc.exists()) await setDoc(doc(db,"settings","main"),settings);
       setData({ products:products.docs.map(x=>x.data() as Product).filter(p=>p.active), sales:sales.docs.map(x=>x.data() as Sale).sort((a,b)=>b.id-a.id), expenses:expenses.docs.map(x=>x.data() as Expense).sort((a,b)=>b.id-a.id), settings });
     }
@@ -90,7 +90,7 @@ export default function Home() {
       } else if (kind === "product") { const id=Date.now(); await setDoc(doc(db,"products",String(id)),{id,name:value.name,flavor:value.flavor,cost:Number(value.cost),price:Number(value.price),stock:Number(value.stock),lowStock:Number(value.lowStock),active:1});
       } else if (kind === "edit") { await setDoc(doc(db,"products",value.productId),{id:Number(value.productId),name:value.name,flavor:value.flavor,cost:Number(value.cost),price:Number(value.price),lowStock:Number(value.lowStock)},{merge:true});
       } else if (kind === "stock") { await runTransaction(db,async tx=>{const ref=doc(db,"products",value.productId),snap=await tx.get(ref);if(!snap.exists())throw new Error("Product not found.");const p=snap.data() as Product,next=p.stock+Number(value.quantity);if(next<0)throw new Error("Stock cannot be negative.");tx.update(ref,{stock:next});});
-      } else if (kind === "settings") { await setDoc(doc(db,"settings","main"),{businessName:value.businessName,ownerName:value.ownerName,contactNumber:value.contactNumber,defaultLowStock:Number(value.defaultLowStock),currency:"PHP"}); }
+      } else if (kind === "settings") { await setDoc(doc(db,"settings","main"),{businessName:value.businessName,ownerName:value.ownerName,contactNumber:value.contactNumber,defaultLowStock:Number(value.defaultLowStock),monthlyPackGoal:Number(value.monthlyPackGoal),currency:"PHP"}); }
       setModal(null); setEditingProduct(null); setEditingSale(null); setToast("Saved! Updated na ang dashboard."); await load();
     } catch (error) { setToast(error instanceof Error ? error.message : "Hindi na-save ang entry."); }
   }
@@ -132,12 +132,14 @@ function Content({ tab, data, stats, open, onEdit, onEditSale, save }: { tab: Ta
 }
 
 function Dashboard({ data, stats, open }: { data: Data; stats: Stats; open: (x: "sale" | "expense" | "product" | "stock") => void }) {
+  const monthKey=today().slice(0,7),monthlyPacks=data.sales.filter(s=>s.saleDate.startsWith(monthKey)).reduce((n,s)=>n+s.quantity,0),goal=Math.max(data.settings.monthlyPackGoal,1),goalPercent=Math.min(100,monthlyPacks/goal*100),remaining=Math.max(0,goal-monthlyPacks);
   const cards = [
     ["Today’s Sales", stats.sales, "gold", "₱"], ["Gross Profit", stats.gross, "purple", "↗"], ["Other Expenses", stats.expenses, "rose", "↘"], ["Net Profit", stats.net, "green", "◎"],
   ];
   return <>
     <section className="summary-grid">{cards.map(([label, value, tone, icon]) => <article className={`summary ${tone}`} key={String(label)}><div className="summary-top"><span>{label}</span><i>{icon}</i></div><strong>{money.format(Number(value))}</strong><small>Updated in real time</small></article>)}</section>
     <section className="mini-grid"><article><span>Packs sold today</span><strong>{stats.packs}</strong></article><article><span>Total inventory</span><strong>{stats.stock}</strong></article><article className={stats.low ? "warning" : ""}><span>Low-stock products</span><strong>{stats.low}</strong></article><article><span>Product cost today</span><strong>{money.format(stats.cost)}</strong></article></section>
+    <section className="monthly-goal panel"><div><p className="eyebrow">MONTHLY PACK GOAL</p><h2>{monthlyPacks} of {goal} packs</h2><span>{remaining ? `${remaining} packs remaining this month` : "Goal achieved—great work!"}</span></div><strong>{Math.round(monthlyPacks/goal*100)}%</strong><div className="goal-track"><i style={{width:`${goalPercent}%`}}/></div></section>
     <section className="dashboard-grid">
       <article className="panel chart-panel"><div className="panel-title"><div><h2>7-day business trend</h2><p>Daily sales, gross profit, and expenses</p></div><span className="chip">Last 7 days</span></div><TrendChart data={data} days={7} /></article>
       <article className="panel quick"><div className="panel-title"><div><h2>Quick actions</h2><p>Record today’s activity</p></div></div><button onClick={() => open("sale")}><i>₱</i><span><b>Record a sale</b><small>Automatically deduct stock</small></span><em>›</em></button><button onClick={() => open("expense")}><i>↗</i><span><b>Add an expense</b><small>Track operating costs</small></span><em>›</em></button><button onClick={() => open("stock")}><i>▤</i><span><b>Update inventory</b><small>Add newly received packs</small></span><em>›</em></button></article>
@@ -176,7 +178,7 @@ function Reports({ data }: { data: Data }) {
 
 function SettingsPage({ settings, save }: { settings: Settings; save: (kind:string,p:Record<string,FormDataEntryValue>)=>Promise<void> }) {
   function submitSettings(e:FormEvent<HTMLFormElement>){e.preventDefault();void save("settings",Object.fromEntries(new FormData(e.currentTarget)));}
-  return <section className="settings-layout"><form className="panel settings-form" onSubmit={submitSettings}><div className="settings-heading"><div className="settings-icon">⚙</div><div><h2>Business profile</h2><p>These details personalize your NUAN dashboard.</p></div></div><label>Business name<input name="businessName" defaultValue={settings.businessName} required/></label><label>Owner name<input name="ownerName" defaultValue={settings.ownerName} required/></label><label>Contact number <small>Optional</small><input name="contactNumber" defaultValue={settings.contactNumber} placeholder="09XX XXX XXXX"/></label><div className="form-row"><label>Default low-stock warning<input type="number" min="0" name="defaultLowStock" defaultValue={settings.defaultLowStock} required/></label><label>Currency<input value="Philippine Peso (PHP)" disabled/></label></div><button className="primary settings-save">Save Settings</button></form><aside><article className="panel settings-card"><span>₱</span><div><h3>Profit calculations</h3><p>Product cost changes apply only to future sales. Historical profits remain unchanged.</p></div></article><article className="panel settings-card"><span>▤</span><div><h3>Inventory alerts</h3><p>Each product can still use its own low-stock warning level from the Products page.</p></div></article><article className="panel settings-card"><span>⌁</span><div><h3>Trend accuracy</h3><p>Record every sale and expense on its actual date for more accurate charts.</p></div></article></aside></section>;
+  return <section className="settings-layout"><form className="panel settings-form" onSubmit={submitSettings}><div className="settings-heading"><div className="settings-icon">⚙</div><div><h2>Business profile</h2><p>These details personalize your NUAN dashboard.</p></div></div><label>Business name<input name="businessName" defaultValue={settings.businessName} required/></label><label>Owner name<input name="ownerName" defaultValue={settings.ownerName} required/></label><label>Contact number <small>Optional</small><input name="contactNumber" defaultValue={settings.contactNumber} placeholder="09XX XXX XXXX"/></label><div className="form-row"><label>Monthly sales goal (packs)<input type="number" min="1" name="monthlyPackGoal" defaultValue={settings.monthlyPackGoal} required/><small>Example: 200 packs per month</small></label><label>Default low-stock warning<input type="number" min="0" name="defaultLowStock" defaultValue={settings.defaultLowStock} required/></label></div><label>Currency<input value="Philippine Peso (PHP)" disabled/></label><button className="primary settings-save">Save Settings</button></form><aside><article className="panel settings-card"><span>◎</span><div><h3>Monthly pack goal</h3><p>Your Dashboard tracks monthly progress automatically and starts fresh each new month.</p></div></article><article className="panel settings-card"><span>₱</span><div><h3>Profit calculations</h3><p>Product cost changes apply only to future sales. Historical profits remain unchanged.</p></div></article><article className="panel settings-card"><span>▤</span><div><h3>Inventory alerts</h3><p>Each product can still use its own low-stock warning level from the Products page.</p></div></article><article className="panel settings-card"><span>⌁</span><div><h3>Trend accuracy</h3><p>Record every sale and expense on its actual date for more accurate charts.</p></div></article></aside></section>;
 }
 
 function EntryModal({ type, products, product, sale, defaultLowStock, close, submit }: { type: "sale" | "editSale" | "expense" | "product" | "stock" | "edit"; products: Product[]; product: Product | null; sale: Sale | null; defaultLowStock: number; close: () => void; submit: (kind: string, p: Record<string, FormDataEntryValue>) => Promise<void> }) {
