@@ -162,11 +162,12 @@ function Dashboard({ data, stats, open }: { data: Data; stats: Stats; open: (x: 
   const recognizedSalesAsOfToday=data.sales.filter(s=>isRecognizedSale(s)&&recognizedDate(s)<=today());
   const expensesAsOfToday=data.expenses.filter(e=>e.expenseDate<=today());
   const totalSales=recognizedSalesAsOfToday.reduce((n,s)=>n+s.total,0);
-  const totalGrossProfit=recognizedSalesAsOfToday.reduce((n,s)=>n+s.profit,0);
+  const totalCogs=recognizedSalesAsOfToday.reduce((n,s)=>n+s.unitCost*s.quantity,0);
+  const totalGrossProfit=totalSales-totalCogs;
   const totalExpenses=expensesAsOfToday.reduce((n,e)=>n+e.amount,0);
   const totalIncome=totalGrossProfit-totalExpenses;
   const cards = [
-    ["Total Sales", totalSales, "gold", "₱"], ["Total Gross Profit", totalGrossProfit, "purple", "↗"], ["Total Expenses", totalExpenses, "rose", "↘"], ["Total Income", totalIncome, "green", "◎"],
+    ["Total Sales", totalSales, "gold", "₱"], ["Cost of Goods Sold", totalCogs, "purple", "▣"], ["Total Expenses", totalExpenses, "rose", "↘"], ["Total Income", totalIncome, "green", "◎"],
   ];
   return <>
     <section className="summary-grid">{cards.map(([label, value, tone, icon]) => <article className={`summary ${tone}`} key={String(label)}><div className="summary-top"><span>{label}</span><i>{icon}</i></div><strong>{money.format(Number(value))}</strong><small>Running total as of today • Updates daily</small></article>)}</section>
